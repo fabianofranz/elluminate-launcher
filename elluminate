@@ -3,7 +3,7 @@
 require 'cgi'
 require 'uri'
 
-USERNAME = ENV['elluminate_user_name'] ? URI.escape ENV['elluminate_user_name'] : URI.escape 'John Doe'
+USERNAME = ENV['elluminate_user_name'] ? URI.escape(ENV['elluminate_user_name']) : URI.escape('John Doe')
 
 url = ARGV[0]
 query = URI.parse(url).query

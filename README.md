@@ -1,7 +1,7 @@
 Elluminate Launcher
 ===================
 
-Launch an Elluminate session from the command line:
+Small and stupid script to launch an Elluminate session from the command line:
 
     elluminate 'https://sas.elluminate.com/m.jnlp?sid=000&password=0.012345678901234567890123456789'
 
