@@ -1,0 +1,29 @@
+#!/usr/bin/env ruby
+
+require 'cgi'
+require 'uri'
+
+USERNAME = ENV['elluminate_user_name'] ? URI.escape ENV['elluminate_user_name'] : URI.escape 'John Doe'
+
+url = ARGV[0]
+query = URI.parse(url).query
+
+file = '/tmp/elluminate_temp.jnlp'
+
+cmd = "curl -X POST 'https://sas.elluminate.com/site/external/launch/meeting.jnlp?" + query + '&username=' + USERNAME + "' > " + file
+
+system cmd
+
+cmd = 'export LD_LIBRARY_PATH=${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}/usr/lib/jvm/jre-1.7.0-openjdk.x86_64/lib/amd64 ; /usr/bin/javaws.itweb ' + file
+
+puts 'Launching Elluminate '
+
+system cmd
+
+puts 'Removing ' + file
+
+File.delete file
+
+puts 'Bye'
+
+exit 0
