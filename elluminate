@@ -1,29 +1,99 @@
 #!/usr/bin/env ruby
 
-require 'cgi'
 require 'uri'
+require 'faraday'
+require 'tempfile'
+require 'pty'
+require 'highline'
+require 'logger'
+require 'ostruct'
 
-USERNAME = ENV['elluminate_user_name'] ? URI.escape(ENV['elluminate_user_name']) : URI.escape('John Doe')
+BASE_URL = 'https://sas.elluminate.com/site/external/launch/meeting.jnlp'
+LAUNCH_CMD = "javaws.itweb"
 
-url = ARGV[0]
-query = URI.parse(url).query
+# Save the configuration information
+@config = OpenStruct.new
+@config.username   = ENV['elluminate_user_name'] || ENV['USER'] || 'John Doe'
+@config.launch_cmd = ENV['elluminate_cmd'] || LAUNCH_CMD
+@config.log_level  = ENV['DEBUG'] ? Logger::DEBUG : Logger::INFO
 
-file = '/tmp/elluminate_temp.jnlp'
+if (export = ENV['elluminate_export'])
+  @config.launch_cmd = "export #{export}; #{@config.launch_cmd}"
+end
 
-cmd = "curl -X POST 'https://sas.elluminate.com/site/external/launch/meeting.jnlp?" + query + '&username=' + USERNAME + "' > " + file
+# This logger lets us color the messages
+class ColorLogger < Logger
+  def format_message(severity,timestamp,progname,msg)
+    color = case severity.downcase.to_sym
+            when :fatal
+              [:white,:bold,:on_red]
+            when :error
+              :red
+            when :warn
+              :yellow
+            when :info
+              :green
+            when :debug
+              :cyan
+            end
+    new_msg = HighLine::color(msg,color)
+    msg.end_with?("...") ? print(new_msg) : puts(new_msg)
+  end
+end
 
-system cmd
+def meeting_url(url)
+  # This is the URL passed on the command line
+  url = URI.parse(url)
 
-cmd = 'export LD_LIBRARY_PATH=${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}/usr/lib/jvm/jre-1.7.0-openjdk.x86_64/lib/amd64 ; /usr/bin/javaws.itweb ' + file
+  # Get the relevant params
+  params = Hash[*url.query.split(/[=&]/)]
+  # Add our username
+  params['username'] = URI.escape(@config.username)
 
-puts 'Launching Elluminate '
+  # Join the params with the launcher URL
+  base_url = URI.parse(BASE_URL)
+  base_url.query = params.map{|k,v| "#{k}=#{v}" }.join("&")
 
-system cmd
+  @logger.debug "URL: #{base_url}"
+  base_url.to_s
+end
 
-puts 'Removing ' + file
+def get_meeting(url)
+  @logger.info "Fetching file..."
+  # Fetch the file
+  response = Faraday.get url
+  @logger.info "done"
+  response.body
+end
 
-File.delete file
+def start_meeting(path)
+  @logger.info "Starting meeting"
+  cmd =  [@config.launch_cmd,path].join(" ")
+  @logger.debug "Running: #{cmd}"
+  begin
+    PTY.spawn( cmd ) do |stdin, stdout, pid|
+      begin
+        # Do stuff with the output here. Just printing to show it works
+        stdin.each { |line| @logger.debug line.chomp }
+      rescue Errno::EIO
+      end
+    end
+  rescue PTY::ChildExited => e
+    @logger.info "Done: #{e}"
+  rescue => msg
+    @logger.error "Something went wrong: #{msg}"
+  end
+  @logger.info "Done"
+end
 
-puts 'Bye'
+@logger = ColorLogger.new(STDOUT)
+@logger.level = @config.log_level
 
-exit 0
+meeting_url = meeting_url(ARGV[0])
+
+Tempfile.open(['meeting','.jnlp']) do |file|
+  response = get_meeting(meeting_url)
+  file.write(response)
+  file.close
+  start_meeting(file.path)
+end
